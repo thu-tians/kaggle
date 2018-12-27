@@ -1,0 +1,3 @@
+[submodule "SigmaNewsProject"]
+	path = SigmaNewsProject
+	url = https://github.com/atharvacc/SigmaNewsProject.git
