@@ -1,7 +1,7 @@
+#%%
 # This Python 3 environment comes with many helpful analytics libraries installed
 # It is defined by the kaggle/python docker image: https://github.com/kaggle/docker-python
 # For example, here's several helpful packages to load in 
-
 import numpy as np
 import pandas as pd
 from kaggle.competitions import twosigmanews
@@ -10,7 +10,7 @@ env = twosigmanews.make_env()
 (marketdf, newsdf) = env.get_training_data()
 
 from sklearn.model_selection import train_test_split
-from sklearn.model_selection import StratifiedKFold
+from sklearn.model_selection import KFold
 
 import lightgbm as lgb
 
@@ -44,6 +44,13 @@ def prepare_data(marketdf, newsdf):
     return pd.merge(marketdf, newsgp, how='left', on=['time', 'assetCode'], copy=False) #, right_on=['time', 'assetCodes'])
 
 
+def load_multi_model():
+    model_list = []
+    for i in range(n_splits):
+        model_list.append(lgb.Booster(model_file='model' + str(i)))
+    return model_list
+
+
 def post_scaling(df):
     mean, std = np.mean(df), np.std(df)
     df = (df - mean)/ (std * 8)
@@ -51,90 +58,122 @@ def post_scaling(df):
 
 
 
-if __name__ == '__main__':
-    print('============> preparing data...')
-    cdf = prepare_data(marketdf, newsdf)    
-    del marketdf, newsdf  # save the precious memory
-    
-    print('============> building training set...')
-    targetcols = ['returnsOpenNextMktres10']
-    traincols = [col for col in cdf.columns if col not in ['time', 'assetCode', 'universe'] + targetcols]
-    
-    
-    
-    ### we be classifyin
-    # cdf[targetcols[0]] = (cdf[targetcols[0]] > 0).astype(int)     # kaggle public kernel的数据截断方法
-    left_threshold = -0.3
-    right_threshold = 0.4
-    trainset_drop_index_left = cdf[cdf[targetcols[0]] < left_threshold].index
-    cdf.drop(trainset_drop_index_left, axis='index', inplace=True)
-    cdf.reset_index(drop=True)
-    trainset_drop_index_right = cdf[cdf[targetcols[0]] > right_threshold].index
-    cdf.drop(trainset_drop_index_right, axis='index', inplace=True)
-    cdf.reset_index(drop=True)
-    
-    ### split train set and valid set
-    dates = cdf['time'].unique()
-    train = range(len(dates))[:int(0.85*len(dates))]
-    val = range(len(dates))[int(0.85*len(dates)):]
-    
-    ### train data
-    Xt = cdf[traincols].fillna(0).loc[cdf['time'].isin(dates[train])].values
-    Yt = cdf[targetcols].fillna(0).loc[cdf['time'].isin(dates[train])].values
-    
-    ### validation data
-    Xv = cdf[traincols].fillna(0).loc[cdf['time'].isin(dates[val])].values
-    Yv = cdf[targetcols].fillna(0).loc[cdf['time'].isin(dates[val])].values
-    
-    print(Xt.shape, Xv.shape)
-    
-    
-    print ('============> Training lightgbm')
-    ########## params for lgb (binary version, 只能处理0、1的分类)
-    # params = {"objective" : "binary",
-    #           "metric" : "binary_logloss",
-    #           "num_leaves" : 125, # originally 60
-    #           "max_depth": -1,
-    #           "learning_rate" : 0.0005,   # originally .01
-    #           "bagging_fraction" : 0.9,  # subsample
-    #           "feature_fraction" : 0.9,  # colsample_bytree
-    #           "bagging_freq" : 5,        # subsample_freq
-    #           "bagging_seed" : 2018,
-    #           "verbosity" : -1 }
 
-    ########## params for lgb (rmse method)
-    params = {"objective" : "regression",
-              "metric" : "rmse",
-              "lambda_l2": 0,
-              "num_leaves" : 128, # originally 60
-              "max_depth": -1,
-              "learning_rate" : 0.005,   # originally .01
-              "bagging_fraction" : 0.9,  # subsample
-              "feature_fraction" : 0.9,  # colsample_bytree
-              "bagging_freq" : 5,        # subsample_freq
-              "bagging_seed" : 2018,
-              "verbosity" : -1 }
-    
-     
+#%%
+####################### params for lgb #######################
+n_splits = 5
+seed = 2018
+### (binary version, 只能处理0、1的分类)
+# params = {"objective" : "binary",
+#           "metric" : "binary_logloss",
+#           "num_leaves" : 125, # originally 60
+#           "max_depth": -1,
+#           "learning_rate" : 0.0005,   # originally .01
+#           "bagging_fraction" : 0.9,  # subsample
+#           "feature_fraction" : 0.9,  # colsample_bytree
+#           "bagging_freq" : 5,        # subsample_freq
+#           "bagging_seed" : 2018,
+#           "verbosity" : -1 }
+
+#### (rmse method)
+params = {"objective" : "regression",
+            "metric" : "rmse",
+            "lambda_l2": 0,
+            "num_leaves" : 256, # originally 60
+            "max_depth": -1,
+            "learning_rate" : 0.005,   # originally .01
+            "bagging_fraction" : 0.9,  # subsample
+            "feature_fraction" : 0.9,  # colsample_bytree
+            "bagging_freq" : 5,        # subsample_freq
+            "bagging_seed" : 2018,
+            "verbosity" : -1 }
+print('============> have read params')
+
+
+
+#%%
+print('============> preparing data...')
+cdf = prepare_data(marketdf, newsdf)    
+del marketdf, newsdf  # save the precious memory
+
+
+#%%
+print('============> building training set...')
+targetcols = ['returnsOpenNextMktres10']
+traincols = [col for col in cdf.columns if col not in ['time', 'assetCode', 'universe'] + targetcols]
+
+
+#%%
+### we be classifyin
+# cdf[targetcols[0]] = (cdf[targetcols[0]] > 0).astype(int)     # kaggle public kernel的数据截断方法
+original_cdf_length = len(cdf.index)
+left_threshold = -0.4
+right_threshold = 0.4
+trainset_drop_index_left = cdf[cdf[targetcols[0]] < left_threshold].index
+cdf.drop(trainset_drop_index_left, axis='index', inplace=True)
+cdf.reset_index(drop=True)
+trainset_drop_index_right = cdf[cdf[targetcols[0]] > right_threshold].index
+cdf.drop(trainset_drop_index_right, axis='index', inplace=True)
+cdf.reset_index(drop=True)
+print('------------ nows cdf/original cdf length =',len(cdf.index)/original_cdf_length)
+
+
+#%%
+#### 根据unique day来划分train-test集合
+# dates_unique = cdf['time'].unique()
+# train = range(len(dates_unique))[:int(0.85*len(dates_unique))]
+# val = range(len(dates_unique))[int(0.85*len(dates_unique)):]
+#### train data （by unique day)
+# Xt = cdf[traincols].fillna(0).loc[cdf['time'].isin(dates_unique[train])].values
+# Yt = cdf[targetcols].fillna(0).loc[cdf['time'].isin(dates_unique[train])].values
+#### validation data  （by unique day)
+# Xv = cdf[traincols].fillna(0).loc[cdf['time'].isin(dates_unique[val])].values
+# Yv = cdf[targetcols].fillna(0).loc[cdf['time'].isin(dates_unique[val])].values
+# print(Xt.shape, Xv.shape)
+
+### split train set and valid set
+X = cdf[traincols].fillna(0).copy()
+y = cdf[targetcols].fillna(0).copy()
+del cdf
+
+
+#%%
+kf = KFold(n_splits=n_splits, shuffle=True, random_state=seed)
+index = 0
+for train_index, test_index in kf.split(X):
+    print('---------------------- now fold =', index, 'in', n_splits, '----------------------')
+    X_train, X_valid, y_train, y_valid = X.iloc[train_index], X.iloc[test_index], y.iloc[train_index], y.iloc[test_index]
+    print ('============> Training lightgbm')
     # We can introduce other boosting algos, default is traditional gradient boosting decision tree
     # Other options include random forest (rf), dropouts meet multiple additive regression trees (dart), 
     # or gradient-based on one-side sampling 
-    lgtrain, lgval = lgb.Dataset(Xt, Yt[:,0]), lgb.Dataset(Xv, Yv[:,0])
-    lgbmodel = lgb.train(params, lgtrain, 2000, valid_sets=[lgtrain, lgval], early_stopping_rounds=300, verbose_eval=200)
-    
-    ########## 
-    print("============> generating predictions...")
-    preddays = env.get_prediction_days()
-    th_ = 0
-    for marketdf, newsdf, predtemplatedf in preddays:
-        # print('------- |',th_,'day')
-        cdf = prepare_data(marketdf, newsdf)
-        Xp = cdf[traincols].fillna(0).values
-        # preds = lgbmodel.predict(Xp, num_iteration=lgbmodel.best_iteration) * 2 - 1   # 原始的预测程序，对应的是0-1分类的情况
-        preds = lgbmodel.predict(Xp, num_iteration=lgbmodel.best_iteration)
-        predsdf = pd.DataFrame({'ast':cdf['assetCode'],'conf':post_scaling(preds)})
-        predtemplatedf['confidenceValue'][predtemplatedf['assetCode'].isin(predsdf.ast)] = predsdf['conf'].values
-        env.predict(predtemplatedf)
-        th_ += 1 
-    
-    env.write_submission_file()
+    lgtrain, lgval = lgb.Dataset(X_train, label=y_train), lgb.Dataset(X_valid, label=y_valid)
+    lgbmodel = lgb.train(params, lgtrain, 1500, valid_sets=[lgval], early_stopping_rounds=300, verbose_eval=200)
+    lgbmodel.save_model('model' + str(index))
+    print('============> saved ' + str(index))
+    index += 1
+
+#%%
+print("============> generating predictions...")
+model_list = load_multi_model()
+preddays = env.get_prediction_days()
+for marketdf, newsdf, predtemplatedf in preddays:
+    cdf = prepare_data(marketdf, newsdf)
+    Xp = cdf[traincols].fillna(0).values
+    # preds = lgbmodel.predict(Xp, num_iteration=lgbmodel.best_iteration) * 2 - 1   # 原始的预测程序，对应的是0-1分类的情况
+
+    for i in range(len(model_list)):
+        if i == 0:
+            preds = model_list[i].predict(Xp, num_iteration=model_list[i].best_iteration)
+        else:
+            preds = preds + model_list[i].predict(Xp, num_iteration=model_list[i].best_iteration)
+
+    preds = preds/n_splits
+    predsdf = pd.DataFrame({'ast':cdf['assetCode'],'conf':post_scaling(preds)})
+    predtemplatedf['confidenceValue'][predtemplatedf['assetCode'].isin(predsdf.ast)] = predsdf['conf'].values
+    env.predict(predtemplatedf)
+
+### ouput final file    
+env.write_submission_file()
+
+
