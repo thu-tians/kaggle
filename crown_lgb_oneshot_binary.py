@@ -122,7 +122,7 @@ if __name__ == '__main__':
               "max_depth": -1,
               "learning_rate" : 0.001,   # originally .01
               "bagging_fraction" : 0.9,  # subsample
-              "feature_fraction" : 0.05,  # colsample_bytree
+              "feature_fraction" : 0.85,  # colsample_bytree
               "bagging_freq" : 5,        # subsample_freq
               "bagging_seed" : 2019,
               "verbosity" : -1 }
