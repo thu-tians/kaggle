@@ -102,7 +102,7 @@ if __name__ == '__main__':
     
     
     print ('============> Training lightgbm')
-    ########## params for lgb (binary version, 只能处理-1、1的分类)
+    ########## params for lgb (作者原始的参数)
     # params = {"objective" : "binary",
     #           "metric" : "binary_logloss",
     #           "num_leaves" : 125, # originally 60
@@ -114,7 +114,7 @@ if __name__ == '__main__':
     #           "bagging_seed" : 2018,
     #           "verbosity" : -1 }
 
-    ########## params for lgb (rmse method)
+    ########## params for lgb 
     params = {"objective" : "binary",
               "metric" : "binary_logloss",
             #   "lambda_l1": 0.01,
@@ -122,7 +122,7 @@ if __name__ == '__main__':
               "max_depth": -1,
               "learning_rate" : 0.001,   # originally .01
               "bagging_fraction" : 0.9,  # subsample
-              "feature_fraction" : 0.85,  # colsample_bytree
+              "feature_fraction" : 0.9,  # colsample_bytree
               "bagging_freq" : 5,        # subsample_freq
               "bagging_seed" : 2019,
               "verbosity" : -1 }
